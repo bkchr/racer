@@ -127,6 +127,31 @@ fn get_type_of_fnarg(m: &Match, msrc: Src, session: &Session) -> Option<core::Ty
         return get_type_of_self_arg(m, msrc, session);
     }
 
+    if m.contextstr.chars().filter(|c| *c == '|').count() == 2 {
+        let src = scopes::mask_comments(msrc);
+        let start = scopes::scope_start(msrc, m.point);
+        debug!("AHHH: {:?}", scopes::mask_comments(msrc.to(start - 1)));
+        let m_new = core::find_definition_(&m.filepath, msrc.src.point_to_coords(start - 1).unwrap().into(), session).unwrap();
+        debug!("AHHH: {:?}", m_new);
+        let msrc = session.load_file_and_mask_comments(&m_new.filepath);
+        let stmtstart = scopes::expect_stmt_start(msrc.as_src(), m_new.point);
+        let block = msrc.from(stmtstart);
+        if let Some((start, end)) = block.iter_stmts().next() {
+            let blob = &msrc[(stmtstart+start)..(stmtstart+end)];
+            // wrap in "impl blah { }" so that methods get parsed correctly too
+            let mut s = String::new();
+            s.push_str("impl blah {");
+            let impl_header_len = s.len();
+            s.push_str(&blob[..(find_start_of_function_body(blob)+1)]);
+            s.push_str("}}");
+            let argpos = s.find("op").unwrap();
+            debug!("AHH: {}", &s.as_str()[argpos..]);
+            //debug!("AHH: {:?}", scopes::mask_comments(msrc.from((stmtstart+start) + impl_header_len + (blob.find("op").unwrap() + 1 - impl_header_len))));
+            let ty = ast::parse_fn_arg_type(s, argpos, Scope::from_match(m), session);
+            debug!("AHHH: {:?}", ty);
+        }
+    } else {
+
     let stmtstart = scopes::expect_stmt_start(msrc, m.point);
     let block = msrc.from(stmtstart);
     if let Some((start, end)) = block.iter_stmts().next() {
@@ -139,6 +164,7 @@ fn get_type_of_fnarg(m: &Match, msrc: Src, session: &Session) -> Option<core::Ty
         s.push_str("}}");
         let argpos = m.point - (stmtstart+start) + impl_header_len;
         return ast::parse_fn_arg_type(s, argpos, Scope::from_match(m), session);
+    }
     }
     None
 }
