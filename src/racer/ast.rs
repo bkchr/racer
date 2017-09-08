@@ -5,6 +5,7 @@ use scopes;
 
 use std::path::Path;
 use std::rc::Rc;
+use std::collections::HashMap;
 
 use syntex_errors::Handler;
 use syntex_errors::emitter::ColorConfig;
@@ -1110,6 +1111,16 @@ pub fn parse_fn_arg_type(s: String, argpos: Point, scope: Scope, session: &Sessi
     v.result
 }
 
+pub fn parse_closure_arg_type(s: String, argpos: Point, scope: Scope, session: &Session) -> Option<core::Ty> {
+    debug!("parse_closure_arg_type {} |{}|", argpos, s);
+    let mut v = ClosureArgTypeVisitor { argpos: argpos, scope: scope, result: None,
+                                   session: session, generic_args: HashMap::new() };
+    if let Some(stmt) = string_to_stmt(s) {
+        visit::walk_stmt(&mut v, &stmt);
+    }
+    v.result
+}
+
 pub fn parse_mod(s: String) -> ModVisitor {
     let mut v = ModVisitor { name: None };
     if let Some(stmt) = string_to_stmt(s) {
@@ -1210,6 +1221,51 @@ impl<'c, 's> visit::Visitor for FnArgTypeVisitor<'c, 's> {
                     .and_then(|ty| path_to_match(ty, self.session));
                 break;
             }
+        }
+    }
+}
+
+pub struct ClosureArgTypeVisitor<'c: 's, 's> {
+    argpos: Point,
+    scope: Scope,
+    session: &'s Session<'c>,
+    pub result: Option<Ty>,
+    pub generic_args: HashMap<String, ast::Ty>,
+}
+
+impl<'c, 's> visit::Visitor for ClosureArgTypeVisitor<'c, 's> {
+    fn visit_fn(&mut self, _: visit::FnKind, fd: &ast::FnDecl, _: codemap::Span, _: ast::NodeId) {
+        for arg in &fd.inputs {
+            let codemap::BytePos(lo) = arg.pat.span.lo;
+            let codemap::BytePos(hi) = arg.pat.span.hi;
+            if self.argpos >= (lo as usize) && self.argpos <= (hi as usize) {
+                debug!("closure arg visitor found type {:?}", arg.ty);
+                self.result = to_racer_ty(&self.generic_args.entry("F".to_string()).or_insert(arg.ty), &self.scope);
+
+                    /*to_racer_ty(&arg.ty, &self.scope)
+                    .and_then(|ty| destructure_pattern_to_ty(&arg.pat, self.argpos,
+                                                             &ty, &self.scope, self.session))
+                    .and_then(|ty| path_to_match(ty, self.session));*/
+                break;
+            }
+        }
+    }
+
+    fn visit_generics(&mut self, g: &ast::Generics) {
+        for ty in g.ty_params.iter() {
+            debug!("GENERIC");
+            let generic_ty_name = ty.ident.name.to_string();
+            let mut generic_bounds = Vec::new();
+            for trait_bound in ty.bounds.iter() {
+                let bound_path = match *trait_bound {
+                    TyParamBound::TraitTyParamBound(ref ptrait_ref, _) => Some(&ptrait_ref.trait_ref.path),
+                    _ => None,
+                };
+                if let Some(path) = bound_path.and_then(|path| { path.segments.get(0) }) {
+                    generic_bounds.push(path.identifier.name.to_string());
+                };
+            }
+            self.generic_args.insert(generic_ty_name, *ty);
         }
     }
 }

@@ -147,8 +147,9 @@ fn get_type_of_fnarg(m: &Match, msrc: Src, session: &Session) -> Option<core::Ty
             let argpos = s.find("op").unwrap();
             debug!("AHH: {}", &s.as_str()[argpos..]);
             //debug!("AHH: {:?}", scopes::mask_comments(msrc.from((stmtstart+start) + impl_header_len + (blob.find("op").unwrap() + 1 - impl_header_len))));
-            let ty = ast::parse_fn_arg_type(s, argpos, Scope::from_match(m), session);
+            let ty = ast::parse_fn_arg_type(s, argpos, Scope::from_match(m_new), session);
             debug!("AHHH: {:?}", ty);
+            debug!("MY: {:?}", ast::parse_closure_arg_type(s, argpos, Scope::from_match(&m_new), session));
         }
     } else {
 
